@@ -20,14 +20,14 @@ INHERITANCE = {
 
     # Auto Object final classes
     'KClientPort'           : 'KSynchronizationObject',
-    'KClientSession'        : 'KAutoObjectWithListAllocatorAdapter',
+    'KClientSession'        : 'KAutoObject',
     'KCodeMemory'           : 'KAutoObjectWithListAllocatorAdapter',
     'KDebug'                : 'KDebugBaseAllocatorAdapter',
     'KDeviceAddressSpace'   : 'KAutoObjectWithListAllocatorAdapter',
     'KEvent'                : 'KAutoObjectWithListAllocatorAdapter',
     'KInterruptEvent'       : 'KReadableEventAllocatorAdapter',
-    'KLightClientSession'   : 'KAutoObjectWithListAllocatorAdapter',
-    'KLightServerSession'   : 'KAutoObjectWithListAllocatorAdapter',
+    'KLightClientSession'   : 'KAutoObject',
+    'KLightServerSession'   : 'KAutoObject',
     'KLightSession'         : 'KAutoObjectWithListAllocatorAdapter',
     'KPort'                 : 'KAutoObjectWithListAllocatorAdapter',
     'KProcess'              : 'KSynchronizationObjectAllocatorAdapter',
@@ -39,10 +39,8 @@ INHERITANCE = {
     'KSharedMemory'         : 'KAutoObjectWithListAllocatorAdapter',
     'KThread'               : 'KSynchronizationObjectAllocatorAdapter',
     'KTransferMemory'       : 'KAutoObjectWithListAllocatorAdapter',
-    'KWritableEvent'        : 'KAutoObjectWithListAllocatorAdapter',
-
-    # Fake helper class
-    'IdObjectHelper'        : 'KAutoObjectWithList'
+    'KIoPool'               : 'KAutoObjectWithListAllocatorAdapter',
+    'KIoRegion'             : 'KAutoObjectWithListAllocatorAdapter',
 }
 
 CLASS_TOKENS = {
@@ -54,13 +52,14 @@ CLASS_TOKENS = {
   'KSession'               : 0x1900,
   'KSharedMemory'          : 0x2900,
   'KEvent'                 : 0x4900,
-  'KWritableEvent'         : 0x8900,
-  'KLightClientSession'    : 0x3100,
-  'KLightServerSession'    : 0x5100,
-  'KTransferMemory'        : 0x9100,
-  'KDeviceAddressSpace'    : 0x6100,
-  'KSessionRequest'        : 0xA100,
-  'KCodeMemory'            : 0xC100,
+  'KLightClientSession'    : 0x8900,
+  'KLightServerSession'    : 0x3100,
+  'KTransferMemory'        : 0x5100,
+  'KDeviceAddressSpace'    : 0x9100,
+  'KSessionRequest'        : 0x6100,
+  'KCodeMemory'            : 0xA100,
+  'KIoPool'                : 0xC100,
+  'KIoRegion'              : 0xE00,
 
   'KSynchronizationObject' : 0x1,
   'KDebug'                 : 0xB01,
@@ -88,16 +87,6 @@ def MakeClassFunctionWithArgs(ret, name, *args):
 VTABLES = {
     # Auto Object base classes.
     'KAutoObject' : [
-        (
-            '(base object destructor)',
-            lambda cn: 'void %s_base_destructor(%s *this);' % (cn, cn),
-            lambda cn: '_ZN%d%sD2Ev' % (len(cn), cn)
-        ),
-        (
-            '(deleting destructor)',
-            lambda cn: 'void %s_deleting_destructor(%s *this);' % (cn, cn),
-            lambda cn: '_ZN%d%sD0Ev' % (len(cn), cn)
-        ),
         MakeClassFunction('void',           'Destroy'),
         MakeClassFunction('void',           'Finalize'),
         MakeClassFunction('KProcess *',     'GetOwnerProcess'),
@@ -110,11 +99,11 @@ VTABLES = {
     'KSynchronizationObject': [
         MakeClassFunction('void', 'OnFinalizeSynchronization'),
         MakeClassFunction('bool', 'IsSignaled'),
-        MakeClassFunction('void', 'DumpWaiters'),
+        #MakeClassFunction('void', 'DumpWaiters'),
     ],
     'KReadableEvent': [
-        MakeClassFunction('Result', 'Signal'),
-        MakeClassFunction('Result', 'Clear'),
+        #MakeClassFunction('Result', 'Signal'),
+        #MakeClassFunction('Result', 'Clear'),
         MakeClassFunction('Result', 'Reset'),
     ],
     'KAutoObjectWithListAllocatorAdapter': [
@@ -226,6 +215,7 @@ def ResolveAncestryConflict(cls, func_ea, func_id, get_type, get_name):
 
 def ApplyVirtualTable(cls, vt, vt_ea):
     for i in xrange(len(vt)):
+        #print '%X' % (vt_ea + 8 * i)
         assert IsInText(ida_bytes.get_64bit(vt_ea + 8 * i))
     for i, (func_id, get_func_type, get_func_name) in enumerate(vt):
         func_ea = ida_bytes.get_64bit(vt_ea + 8 * i)
@@ -327,7 +317,6 @@ def IsGetTypeObj(disasms):
             return False
         return disasms[4][0] == 'ret'
 
-ID_OBJECT_HELPER_VT = None
 
 def GetVtableAddress(get_type_obj_ea):
     global ID_OBJECT_HELPER_VT
@@ -336,18 +325,19 @@ def GetVtableAddress(get_type_obj_ea):
     while ofs < ro_end:
         val = ida_bytes.get_64bit(ofs)
         if val == get_type_obj_ea:
-            candidates.append(ofs - 0x28)
+            candidates.append(ofs - 0x18)
         ofs += 8
     if len(candidates) == 1:
         return candidates[0]
     elif len(candidates) == 2:
+        assert False
         # KAutoObject
         assert ID_OBJECT_HELPER_VT is None
-        if ida_bytes.get_64bit(candidates[0] + 0x38) == 0:
+        if ida_bytes.get_64bit(candidates[0] + 0x28) == 0:
             ID_OBJECT_HELPER_VT = candidates[1]
             return candidates[0]
         else:
-            assert ida_bytes.get_64bit(candidates[1] + 0x38) == 0
+            assert ida_bytes.get_64bit(candidates[1] + 0x28) == 0
             ID_OBJECT_HELPER_VT = candidates[0]
             return candidates[1]
     return None
@@ -375,7 +365,7 @@ for segea in [text_start]:
         TYPE_OBJS[vt_ea] = token
         INVERSE_TYPE_OBJS[token] = vt_ea
 assert set(INVERSE_TYPE_OBJS.keys()) == set(INVERSE_CLASS_TOKENS.keys())
-assert ID_OBJECT_HELPER_VT is not None
+#assert ID_OBJECT_HELPER_VT is not None
 
 for token in INVERSE_CLASS_TOKENS.keys():
     vt_name = '%s::vt' % INVERSE_CLASS_TOKENS[token]
@@ -385,7 +375,7 @@ for token in INVERSE_CLASS_TOKENS.keys():
         idc.set_name(cur_ea, '', SN_CHECK)
     idc.set_name(vt_ea, vt_name, SN_CHECK)
     print 'Found vtable for %s at 0x%x' % (INVERSE_CLASS_TOKENS[token], vt_ea)
-idc.set_name(ID_OBJECT_HELPER_VT, 'IdObjectHelper::vt', SN_CHECK)
+#idc.set_name(ID_OBJECT_HELPER_VT, 'IdObjectHelper::vt', SN_CHECK)
 
 # Label identified vtables
 for cls in INHERITANCE.keys():
