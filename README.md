@@ -21,3 +21,11 @@ Recommended usage flow is as follows:
 * After the object container/allocator initialization functions are labeled, run `kernel_init_array.py`
   * This script is an enormous hack, ymmv, but with container/allocator ctor funcs labeled, it auto-recognizes + names all the allocator/slabheap data.
   * Saves ~30 minutes of mindless manual labeling, so I consider it a must.
+  * NOTE: This script is defunct/no longer necessary since these objects became constant initialized in 13.0.0 and are no longer emitted in .init_array
+
+In addition, two "report" scripts are provided, and may be run after the kernel has been labeled to one's satisfaction:
+
+* `kern_hw_intr_report.py` prints all usages (functions + instruction counts) of instructions which enable or disable interrupts.
+* `kern_hw_maint_report.py` prints all usages (functions + instruction counts) of instructions which engage in cache maintenance/synchronization.
+
+These "report" scripts are intended to aid decompilation projects (like mesosphere) in accurately reflecting changes to how interrupt/cache maintenance is performed, and especially to notice changes in updates.
