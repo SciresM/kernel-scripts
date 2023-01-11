@@ -90,9 +90,9 @@ SVC_MAPPINGS = {
     0x56 : ("CreateDeviceAddressSpace", "Result  %s(Handle *out_handle, uint64_t das_address, uint64_t das_size);"),
     0x57 : ("AttachDeviceAddressSpace", "Result  %s(DeviceName device_name, Handle das_handle);"),
     0x58 : ("DetachDeviceAddressSpace", "Result  %s(DeviceName device_name, Handle das_handle);"),
-    0x59 : ("MapDeviceAddressSpaceByForce", "Result  %s(Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, MemoryPermission device_perm);"),
-    0x5A : ("MapDeviceAddressSpaceAligned", "Result  %s(Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, MemoryPermission device_perm);"),
-    0x5B : ("MapDeviceAddressSpace", "Result  %s(size_t *out_mapped_size, Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, MemoryPermission device_perm);"),
+    0x59 : ("MapDeviceAddressSpaceByForce", "Result  %s(Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, uint32_t option);"),
+    0x5A : ("MapDeviceAddressSpaceAligned", "Result  %s(Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, uint32_t option);"),
+    #0x5B : ("MapDeviceAddressSpace", "Result  %s(size_t *out_mapped_size, Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address, MemoryPermission device_perm);"),
     0x5C : ("UnmapDeviceAddressSpace", "Result  %s(Handle das_handle, Handle process_handle, uint64_t process_address, size_t size, uint64_t device_address);"),
     0x5D : ("InvalidateProcessDataCache", "Result  %s(Handle process_handle, uint64_t address, uint64_t size);"),
     0x5E : ("StoreProcessDataCache", "Result  %s(Handle process_handle, uint64_t address, uint64_t size);"),
@@ -128,6 +128,9 @@ SVC_MAPPINGS = {
     0x7D : ("CreateResourceLimit", "Result  %s(Handle *out_handle);"),
     0x7E : ("SetResourceLimitLimitValue", "Result  %s(Handle resource_limit_handle, LimitableResource which, int64_t limit_value);"),
     0x7F : ("CallSecureMonitor", "void    %s(SecureMonitorArguments *args);"),
+    # new
+    0x90 : ("MapInsecureMemory", "Result %s(uintptr_t address, size_t size);"),
+    0x91 : ("UnmapInsecureMemory", "Result %s(uintptr_t address, size_t size);"),
 }
 
 seg_mapping = {idc.get_segm_name(x): (idc.get_segm_start(x), idc.get_segm_end(x)) for x in Segments()}
@@ -139,9 +142,9 @@ def IsInText(ea):
 
 def Test(ea):
     unknowns = []
-    for svc_id in xrange(0x80):
+    for svc_id in xrange(0xC0):
         ea_svc32 = ea + 8 * svc_id
-        ea_svc64 = ea_svc32 + 0x80 * 8
+        ea_svc64 = ea_svc32 + 0xC0 * 8
         val32 = ida_bytes.get_64bit(ea_svc32)
         val64 = ida_bytes.get_64bit(ea_svc64)
         if svc_id in SVC_MAPPINGS.keys():
@@ -174,7 +177,7 @@ for (seg_name, (seg_start, seg_end)) in rodata_mappings.items():
 
 assert(len(candidates) == 1)
 svc_table32 = candidates[0]
-svc_table64 = svc_table32 + 0x80 * 8
+svc_table64 = svc_table32 + 0xC0 * 8
 print 'Found Svc Tables: %08x %08x' % (svc_table32, svc_table64)
 
 BLS_32   = {}
@@ -242,11 +245,20 @@ def GetMutualBl(func_ea):
         return None
 
 def IsTrampoline(func_ea):
-    disasm = GetDisasm(func_ea).lstrip().rstrip().replace(', ',' ').split()
-    return disasm[0].lower() == 'b'
+    while True:
+        disasm = GetDisasm(func_ea).lstrip().rstrip().replace(', ',' ').split()
+        if disasm[0].lower() == 'and':
+            func_ea += 4
+            continue
+        return disasm[0].lower() == 'b'
 
 def GetBranch(func_ea):
-    disasm = GetDisasm(func_ea).lstrip().rstrip().replace(', ',' ').split()
+    while True:
+        disasm = GetDisasm(func_ea).lstrip().rstrip().replace(', ',' ').split()
+        if disasm[0].lower() == 'and':
+            func_ea += 4
+            continue
+        break
     assert disasm[0].lower() == 'b'
     target_func = get_name_ea_simple(disasm[1])
     if not IsInText(target_func):
@@ -292,6 +304,7 @@ for (svc_id, (svc_name, svc_type)) in SVC_MAPPINGS.items():
         if svc_id in BLS_32 and svc_id in BLS_64:
             subbl32 = GetMutualBl(BLS_32[svc_id])
             subbl64 = GetMutualBl(BLS_64[svc_id])
+            #print svc_name,IsTrampoline(BLS_32[svc_id]),IsTrampoline(BLS_64[svc_id]),BLS_32[svc_id],BLS_64[svc_id]
             if subbl32 is not None and subbl64 is not None:
                 if subbl32 == subbl64:
                     assert('||' not in svc_type)

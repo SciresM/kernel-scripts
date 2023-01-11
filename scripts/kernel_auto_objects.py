@@ -24,6 +24,7 @@ INHERITANCE = {
     'KCodeMemory'           : 'KAutoObjectWithListAllocatorAdapter',
     'KDebug'                : 'KDebugBaseAllocatorAdapter',
     'KDeviceAddressSpace'   : 'KAutoObjectWithListAllocatorAdapter',
+    'KSystemResource'       : 'KAutoObject',
     'KEvent'                : 'KAutoObjectWithListAllocatorAdapter',
     'KInterruptEvent'       : 'KReadableEventAllocatorAdapter',
     'KLightClientSession'   : 'KAutoObject',
@@ -44,13 +45,14 @@ INHERITANCE = {
 }
 
 CLASS_TOKENS = {
-  'KAutoObject'            : 0x0,
+  #'KAutoObject'            : 0x0,
   'KClientSession'         : 0xD00,
   'KResourceLimit'         : 0x2500,
   'KLightSession'          : 0x4500,
   'KPort'                  : 0x8500,
   'KSession'               : 0x1900,
   'KSharedMemory'          : 0x2900,
+  'KSystemResource'        : 0x4600,
   'KEvent'                 : 0x4900,
   'KLightClientSession'    : 0x8900,
   'KLightServerSession'    : 0x3100,
@@ -243,7 +245,7 @@ def IsGetTypeObj(disasms):
     if len(disasms) == 3:
         if len(disasms[0]) != 3:
             return False
-        if disasms[0][0] != 'adrl':
+        if disasms[0][0] != 'adrl' and disasms[0][0] != 'adr':
             return False
         if disasms[0][1] != 'x0':
             return False
@@ -268,6 +270,12 @@ def IsGetTypeObj(disasms):
         if len(disasms[2]) != 1:
             return False
         return disasms[2][0] == 'ret'
+    elif len(disasms) == 4:
+        if len(disasms[0]) != 1:
+            return False
+        if disasms[0][0] != 'nop':
+            return False
+        return IsGetTypeObj(disasms[1:])
     elif len(disasms) == 5:
         if len(disasms[0]) != 3:
             return False
@@ -275,6 +283,17 @@ def IsGetTypeObj(disasms):
             return False
         if disasms[0][1] != 'x8':
             return False
+        if len(disasms[1]) == 3 and disasms[1][0] == 'mov' and disasms[1][1] == 'w1':
+            if disasms[1][2].startswith('#'):
+                pass
+            elif disasms[1][2] == 'xzr':
+                pass
+            else:
+                return False
+            x = disasms[1]
+            disasms[1] = disasms[2]
+            disasms[2] = disasms[3]
+            disasms[3] = x
         if len(disasms[1]) != 4:
             return False
         if disasms[1][0] != 'ldr':
@@ -352,22 +371,32 @@ for segea in [text_start]:
             continue
         startea, endea = chunks[0]
         heads = [head for head in Heads(startea, endea)]
-        if len(heads) != 3 and len(heads) != 5:
+        if len(heads) not in [3, 4, 5]:
             continue
         disasms = [Disassemble(head) for head in heads]
         if not IsGetTypeObj(disasms):
             continue
         token = disasms[-2][2][1:]
+        if len(disasms) == 5 and disasms[1][0] == 'mov':
+            token = disasms[1][2][1:]
         token = int(token, 0) if token != 'zr' else 0
         assert token not in INVERSE_TYPE_OBJS
+        #print 'token %08X @ %X' % (token, funcea)
+        if token == 0x4600 or token == 0:
+            continue
         vt_ea = GetVtableAddress(funcea)
         assert vt_ea is not None
         TYPE_OBJS[vt_ea] = token
         INVERSE_TYPE_OBJS[token] = vt_ea
-assert set(INVERSE_TYPE_OBJS.keys()) == set(INVERSE_CLASS_TOKENS.keys())
+#print set(INVERSE_TYPE_OBJS.keys())
+#print set(INVERSE_CLASS_TOKENS.keys())
+#print set(INVERSE_CLASS_TOKENS.keys()) - set(INVERSE_TYPE_OBJS.keys())
+assert set(INVERSE_TYPE_OBJS.keys() + [0x4600]) == set(INVERSE_CLASS_TOKENS.keys())
 #assert ID_OBJECT_HELPER_VT is not None
 
 for token in INVERSE_CLASS_TOKENS.keys():
+    if token == 0x4600:
+        continue
     vt_name = '%s::vt' % INVERSE_CLASS_TOKENS[token]
     vt_ea   = INVERSE_TYPE_OBJS[token]
     cur_ea  = get_name_ea(BADADDR, vt_name)
