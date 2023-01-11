@@ -37,7 +37,9 @@ def get_udc(head):
             return 'void __ic_%s();' % disasm[1]
     elif mnem == 'dsb':
         assert len(disasm) == 2
-        assert disasm[1] in ['sy', 'ish']
+        if disasm[1] not in ['sy', 'ish', 'ishst', 'ishld']:
+            print disasm[1]
+        assert disasm[1] in ['sy', 'ish', 'ishst', 'ishld']
         return 'void __dsb_%s();' % disasm[1]
     elif mnem == 'prfm':
         assert len(disasm) == 3
